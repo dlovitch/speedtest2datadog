@@ -1,0 +1,3 @@
+*/30 * * * * /app/venv/bin/st2dd >> /var/log/cron.log 2>&1
+#*/5 * * * * /app/echo-test.sh >> /var/log/cron.log 2>&1
+
