@@ -2,6 +2,7 @@
 
 # Builtins
 import logging
+import socket
 import time
 
 # Additional dependencies
@@ -12,7 +13,7 @@ import speedtest
 # Logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
-formatter = logging.Formatter('[%(asctime)s]:%(levelname)s:[%(name)s]:%(message)s')
+formatter = logging.Formatter("[%(asctime)s]:%(levelname)s:[%(name)s]:%(message)s")
 console_logger = logging.StreamHandler()
 console_logger.setFormatter(formatter)
 logger.addHandler(console_logger)
@@ -33,19 +34,29 @@ cli_verbose = click.option(
     count=True,
     expose_value=False,
     callback=set_verbosity,
+    envvar="VERBOSE",
     help="Enable verbose logging",
 )
 
 cli_servers = click.option(
     "-s", "--servers",
     required=False,
+    envvar="SPEEDTEST_SERVERS",
     help="If you want to test against a specific server"
 )
 
 cli_threads = click.option(
     "-t", "--threads",
     required=False,
+    envvar="SPEEDTEST_THREADS",
     help="If you want to use a single threaded test"
+)
+
+cli_datadog_hostname = click.option(
+    "-h", "--hostname",
+    required=True,
+    envvar="DATADOG_HOSTNAME",
+    help="Hostname to use when reporting to Datadog."
 )
 
 def test_speed(servers=None, threads=None):
@@ -67,29 +78,35 @@ def test_speed(servers=None, threads=None):
     return results
 
 
-def send_results_to_datadog(results):
+def send_results_to_datadog(hostname, results):
     datadog.initialize()
     now = time.time()
     metrics = []
-    metrics.append({"metric": "spectrum_internet.download.bits"         , "points": (now, results["download"])          , "host": "Vinton", "tags": [f"""server_id:{results["server"]["id"]}"""]})
-    metrics.append({"metric": "spectrum_internet.upload.bits"           , "points": (now, results["upload"])            , "host": "Vinton", "tags": [f"""server_id:{results["server"]["id"]}"""]})
-    metrics.append({"metric": "spectrum_internet.ping.milliseconds"     , "points": (now, results["ping"])              , "host": "Vinton", "tags": [f"""server_id:{results["server"]["id"]}"""]})
-    metrics.append({"metric": "spectrum_internet.data_sent.bytes"       , "points": (now, results["bytes_sent"])        , "host": "Vinton", "tags": [f"""server_id:{results["server"]["id"]}"""]})
-    metrics.append({"metric": "spectrum_internet.data_received.bytes"   , "points": (now, results["bytes_received"])    , "host": "Vinton", "tags": [f"""server_id:{results["server"]["id"]}"""]})
+    tags = [
+        f"""server_id:{results["server"]["id"]}"""
+        f"""test_host:{socket.gethostname()}"""
+    ]
+    metrics.append({"metric": "spectrum_internet.download.bits"         , "points": (now, results["download"])          , "host": f"{hostname}", "tags": tags})
+    metrics.append({"metric": "spectrum_internet.upload.bits"           , "points": (now, results["upload"])            , "host": f"{hostname}", "tags": tags})
+    metrics.append({"metric": "spectrum_internet.ping.milliseconds"     , "points": (now, results["ping"])              , "host": f"{hostname}", "tags": tags})
+    metrics.append({"metric": "spectrum_internet.data_sent.bytes"       , "points": (now, results["bytes_sent"])        , "host": f"{hostname}", "tags": tags})
+    metrics.append({"metric": "spectrum_internet.data_received.bytes"   , "points": (now, results["bytes_received"])    , "host": f"{hostname}", "tags": tags})
     logger.debug(metrics)
     datadog.api.Metric.send(metrics)
 
 @click.command()
 @cli_verbose
+@cli_datadog_hostname
 @cli_servers
 @cli_threads
-def cli(servers: str=None, threads: str=None):
+def cli(hostname: str, servers: str=None, threads: str=None):
     """Main CLI entrypoint"""
-    logger.debug(f"Servers: servers")
-    logger.debug(f"Threads: threads")
+    logger.debug(f"Hostname: {hostname}")
+    logger.debug(f"Servers: {servers}")
+    logger.debug(f"Threads: {threads}")
     results = test_speed(servers, threads)
-    send_results_to_datadog(results)
+    send_results_to_datadog(hostname, results)
 
 
 if __name__ == "__main__":
-    cli(auto_envvar_prefix="ST2DD", servers=None, threads=None)
+    cli(hostname="localhost", servers=None, threads=None)
